@@ -76,18 +76,6 @@ async function fetchReport() {
     const data = await response.json();
     console.log('API Response:', JSON.stringify(data, null, 2));
 
-
-    // Check if the response contains the required data
-    // if (!data.attendance_records || data.attendance_records.length === 0) {
-    //   alert('No attendance records found for the selected date range.');
-    //   return;
-    // }
-
-    // if (!data.job_set_summary || data.job_set_summary.length === 0) {
-    //   alert('No job set summary found for the selected date range.');
-    //   return;
-    // }
-
     // Process and display data
     displayReport(data);
   } catch (error) {
@@ -102,6 +90,8 @@ function formatValue(value) {
   return Number.isInteger(value) ? value : value.toFixed(2);
 }
 
+
+
 function displayReport(data) {
   if (!data.attendance_records || !data.job_set_summary) {
     console.error('Unexpected response format:', data);
@@ -109,15 +99,14 @@ function displayReport(data) {
   }
 
   const tableBody = document.querySelector('#reportTable tbody');
+  tableBody.innerHTML = ''; // Clear existing table rows (if any)
 
-  // Clear existing table rows (if any)
-  tableBody.innerHTML = '';
-
-  // Combine data from job_set_summary and attendance_records by date and supervisor_name
   const groupedData = {};
 
-  // Helper function to create unique keys
-  const getKey = (date, supervisorName) => `${date}_${supervisorName || 'N/A'}`;
+  // Helper function to create a normalized unique key
+  const getKey = (date, supervisorName) => {
+    return `${date}_${(supervisorName || 'N/A').trim().toLowerCase()}`;
+  };
 
   // Process job_set_summary data
   data.job_set_summary.forEach((item) => {
@@ -132,14 +121,9 @@ function displayReport(data) {
           semi_skilled: formatValue(item.semi_skilled || 0),
           unskilled: formatValue(item.unskilled || 0),
         },
-        timesheet: {
-          skilled: 0,
-          semi_skilled: 0,
-          unskilled: 0,
-        },
+        timesheet: { skilled: 0, semi_skilled: 0, unskilled: 0 }
       };
     } else {
-      // Sum job set details if already present
       groupedData[key].job_set.skilled = formatValue(
         parseFloat(groupedData[key].job_set.skilled) + (item.skilled || 0)
       );
@@ -152,74 +136,60 @@ function displayReport(data) {
     }
   });
 
-  // Process attendance_records data, checking if the data exists before using it
-  if (data.attendance_records && data.attendance_records.length > 0) {
-    data.attendance_records.forEach((record) => {
-      const key = getKey(record.date, record.supervisor_name);
+  // Process attendance_records data
+  data.attendance_records.forEach((record) => {
+    const key = getKey(record.date, record.supervisor_name);
 
-      if (!groupedData[key]) {
-        groupedData[key] = {
-          date: record.date,
-          supervisor_name: record.supervisor_name || 'N/A',
-          job_set: {
-            skilled: 0,
-            semi_skilled: 0,
-            unskilled: 0,
-          },
-          timesheet: {
-            skilled: formatValue(record.total_sk || 0),
-            semi_skilled: formatValue(record.total_ssk || 0),
-            unskilled: formatValue(record.total_usk || 0),
-          },
-        };
-      } else {
-        // Sum timesheet details if already present, using default values of 0 for null or undefined
-        groupedData[key].timesheet.skilled = formatValue(
-          parseFloat(groupedData[key].timesheet.skilled) + (record.total_sk || 0)
-        );
-        groupedData[key].timesheet.semi_skilled = formatValue(
-          parseFloat(groupedData[key].timesheet.semi_skilled) + (record.total_ssk || 0)
-        );
-        groupedData[key].timesheet.unskilled = formatValue(
-          parseFloat(groupedData[key].timesheet.unskilled) + (record.total_usk || 0)
-        );
-      }
-    });
-  } else {
-    console.warn('No attendance records found.');
-  }
-
-  // Sort the grouped data by date and supervisor name (ascending)
-  const sortedData = Object.values(groupedData).sort((a, b) => {
-    const dateComparison = new Date(a.date) - new Date(b.date);
-    if (dateComparison !== 0) return dateComparison;
-
-    // If dates are the same, compare supervisor names
-    return a.supervisor_name.localeCompare(b.supervisor_name);
+    if (!groupedData[key]) {
+      groupedData[key] = {
+        date: record.date,
+        supervisor_name: record.supervisor_name || 'N/A',
+        job_set: { skilled: 0, semi_skilled: 0, unskilled: 0 },
+        timesheet: {
+          skilled: formatValue(record.total_sk || 0),
+          semi_skilled: formatValue(record.total_ssk || 0),
+          unskilled: formatValue(record.total_usk || 0)
+        }
+      };
+    } else {
+      groupedData[key].timesheet.skilled = formatValue(
+        parseFloat(groupedData[key].timesheet.skilled) + (record.total_sk || 0)
+      );
+      groupedData[key].timesheet.semi_skilled = formatValue(
+        parseFloat(groupedData[key].timesheet.semi_skilled) + (record.total_ssk || 0)
+      );
+      groupedData[key].timesheet.unskilled = formatValue(
+        parseFloat(groupedData[key].timesheet.unskilled) + (record.total_usk || 0)
+      );
+    }
   });
 
-  // Generate table rows grouped by date and supervisor_name, combining job_set and timesheet data
+  // Sort grouped data
+  const sortedData = Object.values(groupedData).sort((a, b) => {
+    const dateComparison = new Date(a.date) - new Date(b.date);
+    return dateComparison !== 0 ? dateComparison : a.supervisor_name.localeCompare(b.supervisor_name);
+  });
+
+  // Generate table rows
   sortedData.forEach((entry) => {
     const row = document.createElement('tr');
-
-    // Combine the job_set and timesheet data into a single row
-    const jobSet = entry.job_set;
-    const timesheet = entry.timesheet;
+    const { job_set, timesheet } = entry;
 
     row.innerHTML = `
       <td>${entry.date}</td>
       <td>${entry.supervisor_name}</td>
-      <td style="background-color: ${parseFloat(jobSet.skilled) < parseFloat(timesheet.skilled) ? 'red' : 'transparent'};">${jobSet.skilled}</td>
-      <td style="background-color: ${parseFloat(jobSet.semi_skilled) < parseFloat(timesheet.semi_skilled) ? 'red' : 'transparent'};">${jobSet.semi_skilled}</td>
-      <td style="background-color: ${parseFloat(jobSet.unskilled) < parseFloat(timesheet.unskilled) ? 'red' : 'transparent'};">${jobSet.unskilled}</td>
+      <td style="background-color: ${parseFloat(job_set.skilled) < parseFloat(timesheet.skilled) ? 'red' : 'transparent'};">${job_set.skilled}</td>
+      <td style="background-color: ${parseFloat(job_set.semi_skilled) < parseFloat(timesheet.semi_skilled) ? 'red' : 'transparent'};">${job_set.semi_skilled}</td>
+      <td style="background-color: ${parseFloat(job_set.unskilled) < parseFloat(timesheet.unskilled) ? 'red' : 'transparent'};">${job_set.unskilled}</td>
       <td>${timesheet.skilled}</td>
       <td>${timesheet.semi_skilled}</td>
       <td>${timesheet.unskilled}</td>
     `;
-
     tableBody.appendChild(row);
   });
 }
+
+
 
 function downloadExcel() {
   const table = document.querySelector('#reportTable table'); // Get the table
@@ -258,11 +228,6 @@ function downloadExcel() {
   // Export the workbook to Excel format
   XLSX.writeFile(workbook, 'report.xlsx');
 }
-
-
-
-
-
 
 
   
